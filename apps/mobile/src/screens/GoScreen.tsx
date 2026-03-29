@@ -7,7 +7,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Go'>;
 
 export default function GoScreen({ navigation }: Props) {
   useEffect(() => {
-    const id = setTimeout(() => navigation.navigate('Recreate'), 500);
+    const id = setTimeout(() => navigation.replace('Recreate'), 500);
     return () => clearTimeout(id);
   }, [navigation]);
 

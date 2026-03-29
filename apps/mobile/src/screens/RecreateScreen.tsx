@@ -12,14 +12,16 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import type { HSLColor } from '../types';
+import { useGameStore } from '../store/gameStore';
+import { scoreGuess } from '../utils/game';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Recreate'>;
 
 const TRACK_H = 240;
 const HANDLE_D = 24;
 const TRACK_W = 44;
+const TOTAL_ROUNDS = 5;
 
-// Gradient values run top (low) → bottom (high)
 const HUE_COLORS: [string, string, ...string[]] = [
   'hsl(0,100%,50%)',
   'hsl(60,100%,50%)',
@@ -29,9 +31,6 @@ const HUE_COLORS: [string, string, ...string[]] = [
   'hsl(300,100%,50%)',
   'hsl(360,100%,50%)',
 ];
-
-const HARDCODED_ROUND = 1;
-const TOTAL_ROUNDS = 5;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -64,7 +63,7 @@ function VerticalSlider({ value, max, onChange, gradientColors, label }: SliderP
     })
   ).current;
 
-  // Sync handle when value is updated externally (e.g., reset)
+  // Sync handle when value is updated externally (e.g., reset between rounds)
   useEffect(() => {
     const y = (value / max) * TRACK_H;
     if (Math.abs(y - handleYRef.current) > 0.5) {
@@ -127,9 +126,18 @@ const sl = StyleSheet.create({
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Neutral starting position — user adjusts from here for each round
+const INITIAL_HSL: HSLColor = { h: 180, s: 50, l: 50 };
+
 export default function RecreateScreen({ navigation }: Props) {
-  // Hardcoded initial guess — wired to game state in step 3
-  const [hsl, setHsl] = useState<HSLColor>({ h: 180, s: 50, l: 50 });
+  const rounds = useGameStore((s) => s.rounds);
+  const currentRound = useGameStore((s) => s.currentRound);
+  const recordGuess = useGameStore((s) => s.recordGuess);
+  const setCurrentRound = useGameStore((s) => s.setCurrentRound);
+  const setPhase = useGameStore((s) => s.setPhase);
+
+  // Each mount via replace is a fresh component instance — initial state is always INITIAL_HSL
+  const [hsl, setHsl] = useState<HSLColor>(INITIAL_HSL);
 
   const previewColor = `hsl(${hsl.h}, ${hsl.s}%, ${hsl.l}%)`;
 
@@ -144,8 +152,19 @@ export default function RecreateScreen({ navigation }: Props) {
   ];
 
   function handleSubmit() {
-    // In step 3: record guess, advance round or go to results
-    navigation.navigate('Results');
+    const round = rounds[currentRound];
+    if (!round) return;
+
+    const score = scoreGuess(round.target, hsl);
+    recordGuess(hsl, score);
+
+    if (currentRound < TOTAL_ROUNDS - 1) {
+      setCurrentRound(currentRound + 1);
+      navigation.replace('Memorize');
+    } else {
+      setPhase('results');
+      navigation.replace('Results');
+    }
   }
 
   return (
@@ -155,7 +174,7 @@ export default function RecreateScreen({ navigation }: Props) {
         {/* Top bar */}
         <View style={s.topBar}>
           <View />
-          <Text style={s.progress}>{HARDCODED_ROUND}/{TOTAL_ROUNDS}</Text>
+          <Text style={s.progress}>{currentRound + 1}/{TOTAL_ROUNDS}</Text>
         </View>
 
         {/* Content */}

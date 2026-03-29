@@ -10,25 +10,35 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
+import { useGameStore } from '../store/gameStore';
+import { toHslString } from '../utils/game';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Results'>;
 
-// Hardcoded for step 2 — replaced with Zustand rounds in step 3
-const HARDCODED_RESULTS = [
-  { target: { h: 210, s: 70, l: 50 }, guess: { h: 220, s: 65, l: 52 }, score: 87 },
-  { target: { h: 30,  s: 80, l: 55 }, guess: { h: 45,  s: 75, l: 50 }, score: 72 },
-  { target: { h: 120, s: 60, l: 40 }, guess: { h: 115, s: 65, l: 38 }, score: 91 },
-  { target: { h: 0,   s: 90, l: 45 }, guess: { h: 10,  s: 85, l: 40 }, score: 78 },
-  { target: { h: 270, s: 75, l: 55 }, guess: { h: 260, s: 70, l: 58 }, score: 83 },
-] as const;
-
-const TOTAL = HARDCODED_RESULTS.reduce((sum, r) => sum + r.score, 0);
-
-function hslStr(h: number, s: number, l: number) {
-  return `hsl(${h}, ${s}%, ${l}%)`;
-}
-
 export default function ResultsScreen({ navigation }: Props) {
+  const rounds = useGameStore((s) => s.rounds);
+  const reset = useGameStore((s) => s.reset);
+
+  const total = rounds.reduce((sum, r) => sum + (r.score ?? 0), 0);
+
+  function handlePlayAgain() {
+    reset();
+    navigation.popToTop();
+  }
+
+  if (rounds.length === 0) {
+    return (
+      <SafeAreaView style={s.container}>
+        <View style={s.empty}>
+          <Text style={s.emptyText}>No game data.</Text>
+          <TouchableOpacity onPress={() => navigation.popToTop()}>
+            <Text style={s.emptyLink}>Go home</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={s.container}>
       <ScrollView
@@ -39,36 +49,39 @@ export default function ResultsScreen({ navigation }: Props) {
 
         {/* Total score */}
         <View style={s.scoreBlock}>
-          <Text style={s.totalScore}>{TOTAL}</Text>
+          <Text style={s.totalScore}>{total}</Text>
           <Text style={s.totalDenom}> / 500</Text>
         </View>
 
         {/* Color pairs */}
         <View style={s.pairsRow}>
-          {HARDCODED_RESULTS.map((r, i) => (
-            <View key={i} style={s.pair}>
-              <View style={s.swatchPair}>
-                <View
-                  style={[
-                    s.swatch,
-                    s.swatchLeft,
-                    { backgroundColor: hslStr(r.target.h, r.target.s, r.target.l) },
-                  ]}
-                />
-                <View
-                  style={[
-                    s.swatch,
-                    s.swatchRight,
-                    { backgroundColor: hslStr(r.guess.h, r.guess.s, r.guess.l) },
-                  ]}
-                />
+          {rounds.map((r, i) => {
+            const guessColor = r.guess ?? r.target;
+            return (
+              <View key={i} style={s.pair}>
+                <View style={s.swatchPair}>
+                  <View
+                    style={[
+                      s.swatch,
+                      s.swatchLeft,
+                      { backgroundColor: toHslString(r.target) },
+                    ]}
+                  />
+                  <View
+                    style={[
+                      s.swatch,
+                      s.swatchRight,
+                      { backgroundColor: toHslString(guessColor) },
+                    ]}
+                  />
+                </View>
+                <Text style={s.pairScore}>{r.score ?? 0}</Text>
               </View>
-              <Text style={s.pairScore}>{r.score}</Text>
-            </View>
-          ))}
+            );
+          })}
         </View>
 
-        {/* Labels */}
+        {/* Legend */}
         <View style={s.legendRow}>
           <Text style={s.legend}>target</Text>
           <Text style={s.legend}>guess</Text>
@@ -81,10 +94,7 @@ export default function ResultsScreen({ navigation }: Props) {
             <Text style={s.shareLbl}>Share</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={s.playAgainBtn}
-            onPress={() => navigation.navigate('Home')}
-          >
+          <TouchableOpacity style={s.playAgainBtn} onPress={handlePlayAgain}>
             <Text style={s.playAgainLbl}>Play again</Text>
           </TouchableOpacity>
         </View>
@@ -103,6 +113,14 @@ const s = StyleSheet.create({
     paddingTop: 28,
     paddingBottom: 48,
   },
+  empty: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+  },
+  emptyText: { color: '#FFFFFF', fontSize: 16 },
+  emptyLink: { color: '#666666', fontSize: 14 },
   title: {
     color: '#FFFFFF',
     fontSize: 42,

@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { useGameStore } from '../store/gameStore';
+import { generateColors } from '../utils/game';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
@@ -14,10 +15,13 @@ const RAINBOW: [string, string, ...string[]] = [
 ];
 
 export default function HomeScreen({ navigation }: Props) {
-  const { mode, setMode, difficulty, setDifficulty } = useGameStore();
+  const { mode, setMode, difficulty, setDifficulty, reset, setRounds, setPhase } = useGameStore();
 
   function startGame(selectedMode: typeof mode) {
     setMode(selectedMode);
+    reset();
+    setRounds(generateColors());
+    setPhase('memorize');
     navigation.navigate('Memorize');
   }
 
