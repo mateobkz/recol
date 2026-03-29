@@ -14,6 +14,7 @@ import type { RootStackParamList } from '../navigation/types';
 import type { HSLColor } from '../types';
 import { useGameStore } from '../store/gameStore';
 import { scoreGuess } from '../utils/game';
+import { getSocket } from '../utils/socket';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Recreate'>;
 
@@ -135,6 +136,8 @@ export default function RecreateScreen({ navigation }: Props) {
   const recordGuess = useGameStore((s) => s.recordGuess);
   const setCurrentRound = useGameStore((s) => s.setCurrentRound);
   const setPhase = useGameStore((s) => s.setPhase);
+  const mode = useGameStore((s) => s.mode);
+  const roomCode = useGameStore((s) => s.roomCode);
 
   // Each mount via replace is a fresh component instance — initial state is always INITIAL_HSL
   const [hsl, setHsl] = useState<HSLColor>(INITIAL_HSL);
@@ -157,6 +160,10 @@ export default function RecreateScreen({ navigation }: Props) {
 
     const score = scoreGuess(round.target, hsl);
     recordGuess(hsl, score);
+
+    if (mode === 'multiplayer' && roomCode) {
+      getSocket().emit('submit_guess', { roomCode, roundIndex: currentRound, score });
+    }
 
     if (currentRound < TOTAL_ROUNDS - 1) {
       setCurrentRound(currentRound + 1);

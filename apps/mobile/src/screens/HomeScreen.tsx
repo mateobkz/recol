@@ -15,7 +15,8 @@ const RAINBOW: [string, string, ...string[]] = [
 ];
 
 export default function HomeScreen({ navigation }: Props) {
-  const { mode, setMode, difficulty, setDifficulty, reset, setRounds, setPhase } = useGameStore();
+  const { mode, setMode, difficulty, setDifficulty, reset, setRounds, setPhase } =
+    useGameStore();
 
   function startGame(selectedMode: typeof mode) {
     setMode(selectedMode);
@@ -57,7 +58,7 @@ export default function HomeScreen({ navigation }: Props) {
 
           <TouchableOpacity
             style={[s.modeBtn, mode === 'multiplayer' && s.modeBtnActive]}
-            onPress={() => setMode('multiplayer')}
+            onPress={() => { setMode('multiplayer'); navigation.navigate('Multiplayer'); }}
           >
             <Ionicons name="people" size={22} color="#FFFFFF" />
             <Text style={s.modeLbl}>Multi</Text>
