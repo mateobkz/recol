@@ -1,70 +1,106 @@
 # RECOL — Project Context
 
-> Last updated: Step 3 — Game logic, Zustand wiring, scoring
+> Last updated: Step 4 — Socket.io backend + multiplayer
 
 ---
 
 ## Current Project State
 
-**Step completed:** 3 of 7 — Game logic, state wiring, scoring formula
-**Next step:** 4 — Socket.io backend + multiplayer flow
+**Step completed:** 4 of 7 — Multiplayer (Socket.io)
+**Next step:** 5 — Daily mode (seeded RNG + AsyncStorage)
 
 ---
 
 ## What Was Just Built
 
-### `src/utils/game.ts` (new file)
-- `generateColors(): ColorRound[]` — 5 random HSL colors, s: 35–90, l: 30–70 (avoids extremes)
-- `scoreGuess(target, guess): number` — scoring formula with hue wrap-around
-- `toHslString(c): string` — shared CSS hsl() string helper
+### Server (`apps/server/src/index.ts`)
+Full room management:
+- `rooms: Map<string, Room>` — in-memory store
+- `PlayerData { roundScores: number[] }` — per-player round scores
+- `Room { code, hostId, players: Map, colors, state: waiting|playing|finished }`
+- `generateCode()` — 4-char from unambiguous charset (no 0/O, 1/I), guaranteed unique
+- `generateColors()` — same algorithm as mobile (5 random HSL, s:35–90, l:30–70)
 
-### Scoring formula
-```
-deltaH = min(|h1 - h2|, 360 - |h1 - h2|)   ← handles wrap-around
-score = clamp(100 - (deltaH/3.6 + deltaS + deltaL) / 3, 0, 100)
-```
+**Socket events handled:**
+| Event (client→server) | Behaviour |
+|---|---|
+| `create_room` | Generate code, create room, host joins, emit `room_joined` |
+| `join_room { code }` | Validate room + state, add player, emit `room_joined` to joiner + `player_joined` to others |
+| `start_game { roomCode }` | Host-only, min 2 players, generate colors, emit `game_started` |
+| `submit_guess { roomCode, roundIndex, score }` | Store score, check if all done → emit `show_results` |
+| `disconnect` | Remove player, reassign host if needed, clean up empty rooms |
 
-### HomeScreen
-- `startGame()` now calls `reset()` → `setRounds(generateColors())` → `setPhase('memorize')` → navigate
-- Store is fully cleared before each new game
+**Events emitted (server→client):**
+- `room_joined { roomCode, isHost, playerIds }` → to joining socket only
+- `player_joined { playerIds }` → to all others in room
+- `room_error { message }` → to socket that triggered error
+- `game_started { colors: HSLColor[] }` → to entire room
+- `show_results { leaderboard: { id, totalScore, scores }[] }` → to entire room, sorted desc by score
+- `host_changed { newHostId, playerIds }` → when host disconnects
 
-### MemorizeScreen
-- Reads `rounds[currentRound].target` from store → `toHslString()` for card background
-- Progress shows live `currentRound + 1 / 5`
-- Uses `navigation.replace('Go')` instead of push — keeps stack at depth 2 throughout game
+### Mobile infrastructure
 
-### GoScreen
-- Uses `navigation.replace('Recreate')` — same stack discipline
+**`src/navigation/navigationRef.ts`** (new)
+- `createNavigationContainerRef<RootStackParamList>()` — used by `NavigationContainer` and socket listeners
 
-### RecreateScreen
-- Reads `currentRound` from store for progress indicator
-- On submit:
-  1. `scoreGuess(round.target, hsl)` → score
-  2. `recordGuess(hsl, score)` → stored in Zustand
-  3. `currentRound < 4` → `setCurrentRound(+1)` + `navigation.replace('Memorize')`
-  4. `currentRound === 4` → `setPhase('results')` + `navigation.replace('Results')`
-- Each mount via `replace` is a fresh instance → slider state always starts at `{ h: 180, s: 50, l: 50 }`
+**`src/utils/socket.ts`** (new)
+- `getSocket()` — singleton socket, lazy init, `autoConnect: false`, websocket transport
+- `disconnectSocket()` — full teardown (removeAllListeners + disconnect + null)
+- `setupGameListeners()` — registers `game_started` + `show_results` handlers on the singleton socket; called once when entering the waiting room; survives screen transitions; idempotent (removes previous before adding)
+  - `game_started`: updates store rounds/phase, navigates to Memorize via `navigationRef`
+  - `show_results`: stores leaderboard in `multiLeaderboard`
 
-### ResultsScreen
-- Reads live `rounds` from store
-- `total = rounds.reduce((sum, r) => sum + (r.score ?? 0), 0)`
-- Displays real target vs guess swatches from store
-- "Play again": `reset()` + `navigation.popToTop()` (returns to Home, clears store)
-- Guard: shows fallback if `rounds.length === 0` (direct navigation edge case)
+**`src/store/gameStore.ts`** (extended)
+New fields: `isHost`, `roomPlayers: string[]`, `multiLeaderboard: MultiLeaderboardEntry[]`
+New actions: `setIsHost`, `setRoomPlayers`, `setMultiLeaderboard`
+`reset()` clears all including multiplayer fields.
+
+**`src/types/index.ts`** (extended)
+New type: `MultiLeaderboardEntry { id: string; totalScore: number; scores: number[] }`
+
+**`src/navigation/types.ts`** (extended)
+Added `Multiplayer: undefined` to `RootStackParamList`
+
+**`src/navigation/RootNavigator.tsx`** (updated)
+Uses `navigationRef` on `<NavigationContainer>`, registers `MultiplayerScreen`
+
+### Mobile screens
+
+**`MultiplayerScreen`** (new, `#000000`)
+Three internal views:
+1. `idle` — Create Room + Join Room buttons
+2. `joining` — 4-char TextInput + Join button + validation
+3. `waiting` — large room code display, player count, Start Game (host only, min 2 players) or "Waiting for host..." spinner
+
+Lifecycle:
+- Connects socket on mount if not connected
+- Registers `room_joined`, `player_joined`, `room_error` listeners (cleaned up on unmount)
+- Calls `setupGameListeners()` — persists after unmount
+- Leave button: `disconnectSocket()` + `reset()` + `goBack()`
+
+**`HomeScreen`** (updated)
+Multi button: `setMode('multiplayer')` + `navigation.navigate('Multiplayer')` (was a no-op)
+
+**`RecreateScreen`** (updated)
+In `handleSubmit`: if `mode === 'multiplayer' && roomCode`, emits `submit_guess { roomCode, roundIndex, score }`
+
+**`ResultsScreen`** (updated)
+Multiplayer leaderboard section below color pairs:
+- Shows `ActivityIndicator` + "Waiting for all players..." if `multiLeaderboard` is empty
+- Shows ranked rows when received; highlights "you" (your socketId), truncates others to 6 chars
+- "Play again" calls `disconnectSocket()` before `reset()` in multiplayer mode
 
 ---
 
-## Navigation stack discipline
-All game-internal transitions use `replace` so the stack never grows past depth 2:
+## Navigation stack
 ```
-[Home]                         ← initial
-[Home, Memorize]               ← after Solo/Daily press
-[Home, Go]                     ← Memorize replace
-[Home, Recreate]               ← Go replace
-[Home, Memorize]               ← Recreate replace (next round)
-...
-[Home, Results]                ← final replace
-[Home]                         ← popToTop on Play Again
+[Home]
+[Home, Multiplayer]           ← Multi button
+[Home, Multiplayer, Memorize] ← game_started fires, navigationRef.navigate('Memorize')
+[Home, Multiplayer, Go]       ← replace
+[Home, Multiplayer, Recreate] ← replace
+[Home, Multiplayer, Results]  ← replace (last round)
+[Home]                        ← popToTop on Play Again
 ```
 
 ---
@@ -72,7 +108,7 @@ All game-internal transitions use `replace` so the stack never grows past depth 
 ## Architecture
 
 ### Monorepo
-- npm workspaces — `@recol/mobile` and `@recol/server`
+npm workspaces — `@recol/mobile` and `@recol/server`
 
 ### Tech stack
 | Layer | Library | Version |
@@ -88,52 +124,29 @@ All game-internal transitions use `replace` so the stack never grows past depth 
 | Backend | express + socket.io | ^4.x |
 
 ### Colors
-- Home / Results background: `#000000`
+- Home / Results / Multiplayer background: `#000000`
 - Memorize / Go / Recreate background: `#0d1f0d`
-- Primary text: `#FFFFFF`
 
-### Types (src/types/index.ts)
-- `HSLColor { h: 0–360, s: 0–100, l: 0–100 }`
-- `ColorRound { target: HSLColor, guess: HSLColor | null, score: number | null }`
-- `GameMode: 'solo' | 'multiplayer' | 'daily'`
-- `Difficulty: 'easy' | 'hard'`
-- `GamePhase: 'idle' | 'memorize' | 'go' | 'recreate' | 'results'`
-
-### Zustand store actions
-`setMode`, `setDifficulty`, `setPhase`, `setRounds`, `setCurrentRound`, `recordGuess`, `setRoomCode`, `setSocketId`, `reset`
-
-### Server
-- Express + Socket.io, port from `process.env.PORT ?? 3000`
-- `/health` endpoint for Railway healthcheck
+### Server URL
+- iOS Simulator: `http://localhost:3000`
+- Android Emulator: `http://10.0.2.2:3000`
+- Production: set `EXPO_PUBLIC_SERVER_URL` in `.env`
 
 ---
 
-## Step 4 — Multiplayer Plan
+## Step 5 — Daily Mode Plan
 
-### Flow
-1. Multiplayer button → show "Create" / "Join" UI (modal or inline)
-2. Create room → `socket.emit('create_room')` → server responds `room_joined` with 4-char code
-3. Join room → `socket.emit('join_room', { code })` → server responds `room_joined`
-4. Host starts game → `socket.emit('start_game', { roomCode })` → server generates 5 colors, emits `game_started` with colors to all players
-5. Each player plays solo loop; on RecreateScreen submit also `socket.emit('submit_guess', { roomCode, roundIndex, score })`
-6. When all players finish all 5 rounds → server emits `all_done` + `show_results` with leaderboard
-7. ResultsScreen shows leaderboard for multiplayer mode
-
-### Socket events
-`create_room`, `join_room`, `room_joined`, `start_game`, `game_started`, `submit_guess`, `all_done`, `show_results`
-
-### Server changes needed
-- Room management (Map of roomCode → Room)
-- Color generation on server (same `generateColors()` logic)
-- Track per-player scores
-- Detect when all players have submitted all 5 rounds
+1. **Seeded RNG** — seed with `YYYY-MM-DD` string → deterministic 5 colors (same for all players on same day)
+2. **AsyncStorage** — persist `lastDailyDate` key; on Daily press, check if today's date matches; if yes, show "already played today" message
+3. **Daily flow** — same solo game loop but with seeded colors; no server needed
+4. **Seed algorithm** — simple hash of date string → use as seed for a seeded PRNG (e.g., mulberry32)
 
 ---
 
 ## Known Issues / Notes
 - `expo-linear-gradient ~13.0.2` — run `npx expo install expo-linear-gradient` from `apps/mobile`
-- `babel-plugin-module-resolver` needed for `@/` path alias (`npm i -D babel-plugin-module-resolver` in apps/mobile)
-- Run `npm install` from monorepo root after any package.json changes
+- Android Emulator requires `http://10.0.2.2:3000` instead of `localhost`
+- Socket singleton is module-level; if hot-reload resets modules, call `disconnectSocket()` first
 
 ---
 
@@ -141,7 +154,7 @@ All game-internal transitions use `replace` so the stack never grows past depth 
 - [x] Step 1 — Scaffold monorepo
 - [x] Step 2 — All 5 screens (hardcoded colors)
 - [x] Step 3 — Game logic, Zustand wiring, scoring
-- [ ] Step 4 — Socket.io backend + multiplayer
+- [x] Step 4 — Socket.io backend + multiplayer
 - [ ] Step 5 — Daily mode (seeded RNG + AsyncStorage)
 - [ ] Step 6 — Difficulty toggle (Easy/Hard)
 - [ ] Step 7 — Final polish (animations, transitions, sharing)
