@@ -1,69 +1,80 @@
 # RECOL — Project Context
 
-> Last updated: Step 2 — All 5 screens built with hardcoded colors
+> Last updated: Step 3 — Game logic, Zustand wiring, scoring
 
 ---
 
 ## Current Project State
 
-**Step completed:** 2 of 7 — All 5 screens (hardcoded colors)
-**Next step:** 3 — Wire game logic, Zustand state, and scoring formula
+**Step completed:** 3 of 7 — Game logic, state wiring, scoring formula
+**Next step:** 4 — Socket.io backend + multiplayer flow
 
 ---
 
 ## What Was Just Built
 
-### Screen 1 — HomeScreen (`#000000`)
-- "recol" title (52px, weight 900) + trophy icon (right)
-- Two-line subtitle in #999999
-- Three mode buttons: Solo → starts game, Multi → sets mode only (step 4), Daily → starts game
-- Daily button has a rainbow gradient ring border via `LinearGradient` (2px padding trick)
-- Easy/Hard toggle switch wired to `useGameStore().setDifficulty`
-- Tapping Solo or Daily calls `setMode()` then navigates to Memorize
+### `src/utils/game.ts` (new file)
+- `generateColors(): ColorRound[]` — 5 random HSL colors, s: 35–90, l: 30–70 (avoids extremes)
+- `scoreGuess(target, guess): number` — scoring formula with hue wrap-around
+- `toHslString(c): string` — shared CSS hsl() string helper
 
-### Screen 2 — MemorizeScreen (`#0d1f0d`)
-- Hardcoded color: `hsl(210, 70%, 50%)` in a rounded card (borderRadius 24)
-- "1/5" progress indicator top-left
-- Countdown: `difficulty === 'easy'` → 500s, `'hard'` → 3s
-- `useEffect` with `setTimeout` tick; navigates to Go at 0
+### Scoring formula
+```
+deltaH = min(|h1 - h2|, 360 - |h1 - h2|)   ← handles wrap-around
+score = clamp(100 - (deltaH/3.6 + deltaS + deltaL) / 3, 0, 100)
+```
 
-### Screen 3 — GoScreen (`#0d1f0d`)
-- "go" in 80px weight-900 white, top-right aligned
-- `useEffect` navigates to Recreate after 500ms
+### HomeScreen
+- `startGame()` now calls `reset()` → `setRounds(generateColors())` → `setPhase('memorize')` → navigate
+- Store is fully cleared before each new game
 
-### Screen 4 — RecreateScreen (`#0d1f0d`)
-- Left: three vertical sliders (H/S/L), each a `VerticalSlider` component
-  - PanResponder tracks `dy` from `startYRef` set on `onPanResponderGrant`
-  - `handleYRef` keeps position in sync without stale closure
-  - `LinearGradient` track (14px wide strip, 240px tall) centered in 44px touch target
-  - White circle handle (24px) positioned at `top: handleY`
-  - Guard in `useEffect` (threshold 0.5px) prevents feedback loop when value echoes back
-- Hue gradient: 7-stop rainbow, top=0° bottom=360°
-- Sat gradient: dynamic, `hsl(h, 0%, l%)` → `hsl(h, 100%, l%)`
-- Light gradient: black → `hsl(h, s%, 50%)` → white
-- Right: full-height color preview rectangle using `backgroundColor: hsl(h, s%, l%)`
-- "1/5" top-right; submit button (56px circle, white, `target` icon) bottom-right
-- Submit navigates to Results (step 3: will record guess + advance round)
+### MemorizeScreen
+- Reads `rounds[currentRound].target` from store → `toHslString()` for card background
+- Progress shows live `currentRound + 1 / 5`
+- Uses `navigation.replace('Go')` instead of push — keeps stack at depth 2 throughout game
 
-### Screen 5 — ResultsScreen (`#000000`)
-- "results" title + total score (e.g. `411 / 500`)
-- 5 pairs of color swatches side by side (target | guess), width 44 each
-- Per-pair score below each swatch
-- "target / guess" legend labels
-- Share button (outlined), Play again button (white fill → navigates Home)
-- All data hardcoded — step 3 replaces with Zustand `rounds` array
+### GoScreen
+- Uses `navigation.replace('Recreate')` — same stack discipline
+
+### RecreateScreen
+- Reads `currentRound` from store for progress indicator
+- On submit:
+  1. `scoreGuess(round.target, hsl)` → score
+  2. `recordGuess(hsl, score)` → stored in Zustand
+  3. `currentRound < 4` → `setCurrentRound(+1)` + `navigation.replace('Memorize')`
+  4. `currentRound === 4` → `setPhase('results')` + `navigation.replace('Results')`
+- Each mount via `replace` is a fresh instance → slider state always starts at `{ h: 180, s: 50, l: 50 }`
+
+### ResultsScreen
+- Reads live `rounds` from store
+- `total = rounds.reduce((sum, r) => sum + (r.score ?? 0), 0)`
+- Displays real target vs guess swatches from store
+- "Play again": `reset()` + `navigation.popToTop()` (returns to Home, clears store)
+- Guard: shows fallback if `rounds.length === 0` (direct navigation edge case)
 
 ---
 
-## Key Decisions Made
+## Navigation stack discipline
+All game-internal transitions use `replace` so the stack never grows past depth 2:
+```
+[Home]                         ← initial
+[Home, Memorize]               ← after Solo/Daily press
+[Home, Go]                     ← Memorize replace
+[Home, Recreate]               ← Go replace
+[Home, Memorize]               ← Recreate replace (next round)
+...
+[Home, Results]                ← final replace
+[Home]                         ← popToTop on Play Again
+```
 
-### Architecture
-- **Monorepo:** npm workspaces — `@recol/mobile` and `@recol/server`
-- **Navigation:** `@react-navigation/native` v7 with `createNativeStackNavigator`, `animation: 'fade'`
-- **State:** Zustand v5, single `useGameStore`
-- **Reanimated:** imported at top of `App.tsx` before any other imports; plugin last in babel
+---
 
-### Tech stack locked in
+## Architecture
+
+### Monorepo
+- npm workspaces — `@recol/mobile` and `@recol/server`
+
+### Tech stack
 | Layer | Library | Version |
 |---|---|---|
 | Mobile framework | Expo SDK | ~52.0.46 |
@@ -81,21 +92,14 @@
 - Memorize / Go / Recreate background: `#0d1f0d`
 - Primary text: `#FFFFFF`
 
-### HSL slider design
-- Track: 14px wide gradient strip, 240px tall, borderRadius 7
-- Touch target: 44px wide × 264px tall (TRACK_H + HANDLE_D)
-- Handle: 24px white circle, positioned via `top: handleY` (0 = top of gradient, TRACK_H = bottom)
-- `PanResponder.create()` called once on mount; stale-closure avoided with refs
-- Gradient colors passed as `string[]`, cast to `any` at LinearGradient prop to satisfy tuple type
-
-### Types defined (src/types/index.ts)
+### Types (src/types/index.ts)
 - `HSLColor { h: 0–360, s: 0–100, l: 0–100 }`
-- `ColorRound { target, guess, score }`
+- `ColorRound { target: HSLColor, guess: HSLColor | null, score: number | null }`
 - `GameMode: 'solo' | 'multiplayer' | 'daily'`
 - `Difficulty: 'easy' | 'hard'`
 - `GamePhase: 'idle' | 'memorize' | 'go' | 'recreate' | 'results'`
 
-### Zustand store actions (defined in step 1)
+### Zustand store actions
 `setMode`, `setDifficulty`, `setPhase`, `setRounds`, `setCurrentRound`, `recordGuess`, `setRoomCode`, `setSocketId`, `reset`
 
 ### Server
@@ -104,32 +108,30 @@
 
 ---
 
-## Step 3 — Game Logic Wiring Plan
+## Step 4 — Multiplayer Plan
 
-Replace all hardcoded data with live Zustand state:
+### Flow
+1. Multiplayer button → show "Create" / "Join" UI (modal or inline)
+2. Create room → `socket.emit('create_room')` → server responds `room_joined` with 4-char code
+3. Join room → `socket.emit('join_room', { code })` → server responds `room_joined`
+4. Host starts game → `socket.emit('start_game', { roomCode })` → server generates 5 colors, emits `game_started` with colors to all players
+5. Each player plays solo loop; on RecreateScreen submit also `socket.emit('submit_guess', { roomCode, roundIndex, score })`
+6. When all players finish all 5 rounds → server emits `all_done` + `show_results` with leaderboard
+7. ResultsScreen shows leaderboard for multiplayer mode
 
-1. **HomeScreen** — on Solo/Daily press, call `reset()` then `setRounds(generateColors())` then navigate
-2. **generateColors()** — utility: create 5 random `HSLColor` values, wrap in `ColorRound[]` with `guess: null, score: null`
-3. **MemorizeScreen** — read `rounds[currentRound].target`, convert to `hsl()` string for card background
-4. **RecreateScreen** — on submit: compute score via formula, call `recordGuess(guess, score)`, then:
-   - if `currentRound < 4`: `setCurrentRound(currentRound + 1)`, navigate to Memorize
-   - else: `setPhase('results')`, navigate to Results
-5. **ResultsScreen** — read `rounds` array from store, compute total score live
-
-### Scoring formula
-```
-score = clamp(100 - (deltaH/3.6 + deltaS + deltaL) / 3, 0, 100)
-```
-
----
-
-## Socket Events (step 4)
+### Socket events
 `create_room`, `join_room`, `room_joined`, `start_game`, `game_started`, `submit_guess`, `all_done`, `show_results`
+
+### Server changes needed
+- Room management (Map of roomCode → Room)
+- Color generation on server (same `generateColors()` logic)
+- Track per-player scores
+- Detect when all players have submitted all 5 rounds
 
 ---
 
 ## Known Issues / Notes
-- `expo-linear-gradient` added to package.json (`~13.0.2`). Run `npx expo install expo-linear-gradient` from `apps/mobile` to install with correct pinned version.
+- `expo-linear-gradient ~13.0.2` — run `npx expo install expo-linear-gradient` from `apps/mobile`
 - `babel-plugin-module-resolver` needed for `@/` path alias (`npm i -D babel-plugin-module-resolver` in apps/mobile)
 - Run `npm install` from monorepo root after any package.json changes
 
@@ -138,7 +140,7 @@ score = clamp(100 - (deltaH/3.6 + deltaS + deltaL) / 3, 0, 100)
 ## Build Order Checklist
 - [x] Step 1 — Scaffold monorepo
 - [x] Step 2 — All 5 screens (hardcoded colors)
-- [ ] Step 3 — Game logic, Zustand wiring, scoring
+- [x] Step 3 — Game logic, Zustand wiring, scoring
 - [ ] Step 4 — Socket.io backend + multiplayer
 - [ ] Step 5 — Daily mode (seeded RNG + AsyncStorage)
 - [ ] Step 6 — Difficulty toggle (Easy/Hard)
