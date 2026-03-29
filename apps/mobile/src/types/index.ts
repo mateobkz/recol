@@ -27,3 +27,9 @@ export interface Room {
   colors: HSLColor[];
   state: 'waiting' | 'playing' | 'finished';
 }
+
+export interface MultiLeaderboardEntry {
+  id: string;
+  totalScore: number;
+  scores: number[];
+}

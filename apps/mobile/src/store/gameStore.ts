@@ -1,5 +1,12 @@
 import { create } from 'zustand';
-import type { GameMode, Difficulty, GamePhase, HSLColor, ColorRound } from '../types';
+import type {
+  GameMode,
+  Difficulty,
+  GamePhase,
+  HSLColor,
+  ColorRound,
+  MultiLeaderboardEntry,
+} from '../types';
 
 interface GameStore {
   // Config
@@ -14,6 +21,9 @@ interface GameStore {
   // Multiplayer
   roomCode: string | null;
   socketId: string | null;
+  isHost: boolean;
+  roomPlayers: string[];
+  multiLeaderboard: MultiLeaderboardEntry[];
 
   // Actions
   setMode: (mode: GameMode) => void;
@@ -24,6 +34,9 @@ interface GameStore {
   recordGuess: (guess: HSLColor, score: number) => void;
   setRoomCode: (code: string | null) => void;
   setSocketId: (id: string | null) => void;
+  setIsHost: (isHost: boolean) => void;
+  setRoomPlayers: (players: string[]) => void;
+  setMultiLeaderboard: (lb: MultiLeaderboardEntry[]) => void;
   reset: () => void;
 }
 
@@ -35,6 +48,9 @@ const initialState = {
   currentRound: 0,
   roomCode: null,
   socketId: null,
+  isHost: false,
+  roomPlayers: [] as string[],
+  multiLeaderboard: [] as MultiLeaderboardEntry[],
 };
 
 export const useGameStore = create<GameStore>((set) => ({
@@ -59,5 +75,8 @@ export const useGameStore = create<GameStore>((set) => ({
 
   setRoomCode: (roomCode) => set({ roomCode }),
   setSocketId: (socketId) => set({ socketId }),
+  setIsHost: (isHost) => set({ isHost }),
+  setRoomPlayers: (roomPlayers) => set({ roomPlayers }),
+  setMultiLeaderboard: (multiLeaderboard) => set({ multiLeaderboard }),
   reset: () => set(initialState),
 }));
