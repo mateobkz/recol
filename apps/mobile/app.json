@@ -17,8 +17,6 @@
       },
       "package": "com.recol.app"
     },
-    "plugins": [
-      "react-native-reanimated"
-    ]
+    "plugins": []
   }
 }
