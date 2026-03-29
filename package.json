@@ -1,0 +1,14 @@
+{
+  "name": "recol",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/mobile",
+    "apps/server"
+  ],
+  "scripts": {
+    "mobile": "npm run start --workspace=apps/mobile",
+    "server": "npm run dev --workspace=apps/server",
+    "server:build": "npm run build --workspace=apps/server"
+  }
+}

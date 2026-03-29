@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "recol",
+    "slug": "recol",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#000000",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.recol.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#000000"
+      },
+      "package": "com.recol.app"
+    },
+    "plugins": [
+      "react-native-reanimated"
+    ]
+  }
+}
